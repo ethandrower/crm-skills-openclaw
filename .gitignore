@@ -20,10 +20,10 @@ env/
 CLAUDE.md
 AGENTS.md
 
-# HubSpot project scaffolding (internal)
+# HubSpot project scaffolding (internal — root-level only)
 hsproject.json
 hsprofile.*.json
-src/
+/src/
 HUBSPOT_PROJECTS.md
 
 # OS

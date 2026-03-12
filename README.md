@@ -1,4 +1,4 @@
-# hubspot-openclaw
+# crm-skills-openclaw
 
 An [OpenClaw](https://github.com/openclaw/openclaw)-compatible skill that wraps the HubSpot CRM REST API, giving AI agents a clean JSON CLI interface for managing contacts, deals, companies, products, line items, and subscriptions.
 

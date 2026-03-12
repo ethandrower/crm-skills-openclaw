@@ -1,0 +1,35 @@
+# Secrets
+.env
+.env.local
+local.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# Claude / AI tooling (internal)
+.claude/
+CLAUDE.md
+AGENTS.md
+
+# HubSpot project scaffolding (internal)
+hsproject.json
+hsprofile.*.json
+src/
+HUBSPOT_PROJECTS.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

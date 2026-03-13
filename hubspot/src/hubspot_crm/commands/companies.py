@@ -132,31 +132,57 @@ def delete(company_id: str = typer.Argument(..., help="Company ID.")) -> None:
 
 @app.command()
 def search(
-    domain: Optional[str] = typer.Option(None, help="Search by domain."),
-    name: Optional[str] = typer.Option(None, help="Search by name."),
+    domain: Optional[str] = typer.Option(None, help="Filter by domain (exact)."),
+    name: Optional[str] = typer.Option(None, help="Search by name (partial match)."),
+    industry: Optional[str] = typer.Option(None, help="Filter by industry (e.g. TECHNOLOGY, PHARMACEUTICALS)."),
+    created_after: Optional[str] = typer.Option(None, "--created-after", help="Created after (YYYY-MM-DD)."),
+    created_before: Optional[str] = typer.Option(None, "--created-before", help="Created before (YYYY-MM-DD)."),
+    sort_by: str = typer.Option("createdate", "--sort-by", help="Property to sort by."),
+    sort_dir: str = typer.Option("DESCENDING", "--sort-dir", help="ASCENDING or DESCENDING."),
     limit: int = typer.Option(10, help="Max results."),
+    after: Optional[str] = typer.Option(None, help="Pagination cursor."),
 ) -> None:
-    """Search companies by domain or name."""
+    """Search companies with filtering and sorting."""
     from hubspot.crm.companies import PublicObjectSearchRequest, Filter, FilterGroup
 
     client = get_client()
     filters: list = []
+
     if domain:
         filters.append(Filter(property_name="domain", operator="EQ", value=domain))
     if name:
         filters.append(Filter(property_name="name", operator="CONTAINS_TOKEN", value=name))
-    if not filters:
-        _output(err("Provide at least --domain or --name."))
-        raise typer.Exit(1)
+    if industry:
+        filters.append(Filter(property_name="industry", operator="EQ", value=industry))
+    if created_after:
+        filters.append(Filter(property_name="createdate", operator="GTE", value=_date_to_ms(created_after)))
+    if created_before:
+        filters.append(Filter(property_name="createdate", operator="LTE", value=_date_to_ms(created_before)))
+
     try:
-        results = client.crm.companies.search_api.do_search(
-            public_object_search_request=PublicObjectSearchRequest(
-                filter_groups=[FilterGroup(filters=filters)],
-                properties=["name", "domain", "industry", "phone"],
-                limit=limit,
-            )
+        req = PublicObjectSearchRequest(
+            filter_groups=[FilterGroup(filters=filters)] if filters else [],
+            properties=["name", "domain", "industry", "phone", "city", "createdate"],
+            sorts=[{"propertyName": sort_by, "direction": sort_dir.upper()}],
+            limit=limit,
         )
-        _output(ok({"results": [{"id": c.id, "properties": c.properties} for c in results.results]}))
+        if after:
+            req.after = after
+        results = client.crm.companies.search_api.do_search(public_object_search_request=req)
+        paging = None
+        if results.paging and results.paging.next:
+            paging = {"next": {"after": results.paging.next.after}}
+        _output(ok({
+            "results": [{"id": c.id, "properties": c.properties} for c in results.results],
+            "total": results.total,
+            "paging": paging,
+        }))
     except ApiException as e:
         _output(handle_api_exception(e))
         raise typer.Exit(1)
+
+
+def _date_to_ms(date_str: str) -> str:
+    from datetime import datetime, timezone
+    dt = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    return str(int(dt.timestamp() * 1000))

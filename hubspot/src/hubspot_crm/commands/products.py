@@ -128,3 +128,52 @@ def delete(product_id: str = typer.Argument(..., help="Product ID.")) -> None:
     except ApiException as e:
         _output(handle_api_exception(e))
         raise typer.Exit(1)
+
+
+@app.command()
+def search(
+    name: Optional[str] = typer.Option(None, help="Search by name (partial match)."),
+    sku: Optional[str] = typer.Option(None, "--sku", help="Filter by SKU (exact)."),
+    min_price: Optional[float] = typer.Option(None, "--min-price", help="Minimum price."),
+    max_price: Optional[float] = typer.Option(None, "--max-price", help="Maximum price."),
+    sort_by: str = typer.Option("createdate", "--sort-by", help="Property to sort by."),
+    sort_dir: str = typer.Option("DESCENDING", "--sort-dir", help="ASCENDING or DESCENDING."),
+    limit: int = typer.Option(10, help="Max results."),
+    after: Optional[str] = typer.Option(None, help="Pagination cursor."),
+) -> None:
+    """Search products with filtering and sorting."""
+    from hubspot.crm.products import PublicObjectSearchRequest, Filter, FilterGroup
+
+    client = get_client()
+    filters: list = []
+
+    if name:
+        filters.append(Filter(property_name="name", operator="CONTAINS_TOKEN", value=name))
+    if sku:
+        filters.append(Filter(property_name="hs_sku", operator="EQ", value=sku))
+    if min_price is not None:
+        filters.append(Filter(property_name="price", operator="GTE", value=str(min_price)))
+    if max_price is not None:
+        filters.append(Filter(property_name="price", operator="LTE", value=str(max_price)))
+
+    try:
+        req = PublicObjectSearchRequest(
+            filter_groups=[FilterGroup(filters=filters)] if filters else [],
+            properties=["name", "price", "description", "hs_sku", "createdate"],
+            sorts=[{"propertyName": sort_by, "direction": sort_dir.upper()}],
+            limit=limit,
+        )
+        if after:
+            req.after = after
+        results = client.crm.products.search_api.do_search(public_object_search_request=req)
+        paging = None
+        if results.paging and results.paging.next:
+            paging = {"next": {"after": results.paging.next.after}}
+        _output(ok({
+            "results": [{"id": p.id, "properties": p.properties} for p in results.results],
+            "total": results.total,
+            "paging": paging,
+        }))
+    except ApiException as e:
+        _output(handle_api_exception(e))
+        raise typer.Exit(1)

@@ -168,31 +168,69 @@ def associate(
 
 @app.command()
 def search(
-    name: Optional[str] = typer.Option(None, help="Search by deal name."),
+    name: Optional[str] = typer.Option(None, help="Search by deal name (partial match)."),
     stage: Optional[str] = typer.Option(None, help="Filter by deal stage."),
+    pipeline: Optional[str] = typer.Option(None, help="Filter by pipeline ID."),
+    min_amount: Optional[float] = typer.Option(None, "--min-amount", help="Minimum deal amount."),
+    max_amount: Optional[float] = typer.Option(None, "--max-amount", help="Maximum deal amount."),
+    close_after: Optional[str] = typer.Option(None, "--close-after", help="Close date after (YYYY-MM-DD)."),
+    close_before: Optional[str] = typer.Option(None, "--close-before", help="Close date before (YYYY-MM-DD)."),
+    created_after: Optional[str] = typer.Option(None, "--created-after", help="Created after (YYYY-MM-DD)."),
+    created_before: Optional[str] = typer.Option(None, "--created-before", help="Created before (YYYY-MM-DD)."),
+    sort_by: str = typer.Option("createdate", "--sort-by", help="Property to sort by."),
+    sort_dir: str = typer.Option("DESCENDING", "--sort-dir", help="ASCENDING or DESCENDING."),
     limit: int = typer.Option(10, help="Max results."),
+    after: Optional[str] = typer.Option(None, help="Pagination cursor."),
 ) -> None:
-    """Search deals by name or stage."""
+    """Search deals with filtering and sorting."""
     from hubspot.crm.deals import PublicObjectSearchRequest, Filter, FilterGroup
 
     client = get_client()
     filters: list = []
+
     if name:
         filters.append(Filter(property_name="dealname", operator="CONTAINS_TOKEN", value=name))
     if stage:
         filters.append(Filter(property_name="dealstage", operator="EQ", value=stage))
-    if not filters:
-        _output(err("Provide at least --name or --stage."))
-        raise typer.Exit(1)
+    if pipeline:
+        filters.append(Filter(property_name="pipeline", operator="EQ", value=pipeline))
+    if min_amount is not None:
+        filters.append(Filter(property_name="amount", operator="GTE", value=str(min_amount)))
+    if max_amount is not None:
+        filters.append(Filter(property_name="amount", operator="LTE", value=str(max_amount)))
+    if close_after:
+        filters.append(Filter(property_name="closedate", operator="GTE", value=_date_to_ms(close_after)))
+    if close_before:
+        filters.append(Filter(property_name="closedate", operator="LTE", value=_date_to_ms(close_before)))
+    if created_after:
+        filters.append(Filter(property_name="createdate", operator="GTE", value=_date_to_ms(created_after)))
+    if created_before:
+        filters.append(Filter(property_name="createdate", operator="LTE", value=_date_to_ms(created_before)))
+
     try:
-        results = client.crm.deals.search_api.do_search(
-            public_object_search_request=PublicObjectSearchRequest(
-                filter_groups=[FilterGroup(filters=filters)],
-                properties=["dealname", "dealstage", "amount", "closedate"],
-                limit=limit,
-            )
+        req = PublicObjectSearchRequest(
+            filter_groups=[FilterGroup(filters=filters)] if filters else [],
+            properties=["dealname", "dealstage", "amount", "closedate", "pipeline", "createdate"],
+            sorts=[{"propertyName": sort_by, "direction": sort_dir.upper()}],
+            limit=limit,
         )
-        _output(ok({"results": [{"id": d.id, "properties": d.properties} for d in results.results]}))
+        if after:
+            req.after = after
+        results = client.crm.deals.search_api.do_search(public_object_search_request=req)
+        paging = None
+        if results.paging and results.paging.next:
+            paging = {"next": {"after": results.paging.next.after}}
+        _output(ok({
+            "results": [{"id": d.id, "properties": d.properties} for d in results.results],
+            "total": results.total,
+            "paging": paging,
+        }))
     except ApiException as e:
         _output(handle_api_exception(e))
         raise typer.Exit(1)
+
+
+def _date_to_ms(date_str: str) -> str:
+    from datetime import datetime, timezone
+    dt = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    return str(int(dt.timestamp() * 1000))

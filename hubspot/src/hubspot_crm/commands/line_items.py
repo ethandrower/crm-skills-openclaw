@@ -128,6 +128,55 @@ def delete(line_item_id: str = typer.Argument(..., help="Line item ID.")) -> Non
 
 
 @app.command()
+def search(
+    name: Optional[str] = typer.Option(None, help="Search by name (partial match)."),
+    product_id: Optional[str] = typer.Option(None, "--product-id", help="Filter by HubSpot product ID."),
+    min_price: Optional[float] = typer.Option(None, "--min-price", help="Minimum unit price."),
+    max_price: Optional[float] = typer.Option(None, "--max-price", help="Maximum unit price."),
+    sort_by: str = typer.Option("createdate", "--sort-by", help="Property to sort by."),
+    sort_dir: str = typer.Option("DESCENDING", "--sort-dir", help="ASCENDING or DESCENDING."),
+    limit: int = typer.Option(10, help="Max results."),
+    after: Optional[str] = typer.Option(None, help="Pagination cursor."),
+) -> None:
+    """Search line items with filtering and sorting."""
+    from hubspot.crm.line_items import PublicObjectSearchRequest, Filter, FilterGroup
+
+    client = get_client()
+    filters: list = []
+
+    if name:
+        filters.append(Filter(property_name="name", operator="CONTAINS_TOKEN", value=name))
+    if product_id:
+        filters.append(Filter(property_name="hs_product_id", operator="EQ", value=product_id))
+    if min_price is not None:
+        filters.append(Filter(property_name="price", operator="GTE", value=str(min_price)))
+    if max_price is not None:
+        filters.append(Filter(property_name="price", operator="LTE", value=str(max_price)))
+
+    try:
+        req = PublicObjectSearchRequest(
+            filter_groups=[FilterGroup(filters=filters)] if filters else [],
+            properties=["name", "quantity", "price", "hs_product_id", "createdate"],
+            sorts=[{"propertyName": sort_by, "direction": sort_dir.upper()}],
+            limit=limit,
+        )
+        if after:
+            req.after = after
+        results = client.crm.line_items.search_api.do_search(public_object_search_request=req)
+        paging = None
+        if results.paging and results.paging.next:
+            paging = {"next": {"after": results.paging.next.after}}
+        _output(ok({
+            "results": [{"id": li.id, "properties": li.properties} for li in results.results],
+            "total": results.total,
+            "paging": paging,
+        }))
+    except ApiException as e:
+        _output(handle_api_exception(e))
+        raise typer.Exit(1)
+
+
+@app.command()
 def associate(
     line_item_id: str = typer.Argument(..., help="Line item ID."),
     deal_id: str = typer.Option(..., "--deal-id", help="Deal ID to associate with."),
